@@ -1,3 +1,11 @@
+# ── Risk Copilot Project Specific ───────────────────────────────────
+chroma_db/
+logs/
+data/raw/
+data/synthetic/
+models/*.pkl
+*.parquet
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
