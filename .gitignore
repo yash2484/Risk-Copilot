@@ -213,3 +213,13 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+
+# ── Risk Copilot Project Specific ───────────────────────────────────
+chroma_db/
+logs/
+data/raw/
+data/synthetic/
+models/*.pkl
+*.parquet
+.env

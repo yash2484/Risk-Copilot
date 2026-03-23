@@ -1,0 +1,18 @@
+# NOTE: Docker is not required for the current build.
+# This is for the future production Postgres upgrade (Phase 8+).
+# Current build uses DuckDB + ChromaDB + CSV logging — no server needed.
+
+docker psservices:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: risk_copilot
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
