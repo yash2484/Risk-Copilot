@@ -3,7 +3,7 @@
 # DuckDB query engine for the project.
 # Reads Parquet files directly as SQL-queryable views — no database
 # server to start, no loading step, no data copying.
-    
+#
 # DuckDB is embedded in your Python process, starts in milliseconds,
 # and handles 50k-row queries in under 10ms.
 # ──────────────────────────────────────────────────────────────────────
