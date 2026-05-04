@@ -20,7 +20,7 @@ sentence-transformers
 
 # ── Data & Analytics ──────────────────────────────────────────────────
 pandas
-numpy
+numpy<2
 duckdb==1.1.3
 pyarrow
 
