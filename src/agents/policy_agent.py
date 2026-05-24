@@ -7,6 +7,8 @@
 
 import os
 from pathlib import Path
+import logging
+logging.getLogger("chromadb.telemetry").setLevel(logging.CRITICAL)
 import chromadb
 from chromadb.config import Settings
 from sentence_transformers import SentenceTransformer
