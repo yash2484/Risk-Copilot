@@ -19,7 +19,7 @@
 
 <br/>
 
-![Status](https://img.shields.io/badge/Status-Work%20In%20Progress-orange?style=for-the-badge)
+![Status](https://img.shields.io/badge/Status-Phases%201--7%20Complete-green?style=for-the-badge)
 ![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python&logoColor=white)
 ![LangGraph](https://img.shields.io/badge/LangGraph-Multi--Agent-FF6B35?style=for-the-badge)
 ![FastAPI](https://img.shields.io/badge/FastAPI-Backend-009688?style=for-the-badge&logo=fastapi&logoColor=white)
@@ -29,9 +29,8 @@
 
 <br/>
 
-> ⚠️ **This repository is under active development.**
-> Phases 1–4 are complete. Phases 5–8 (LangGraph orchestration, FastAPI, Streamlit UI, and testing) are in progress.
-> This README reflects the full intended architecture — not just what is built today.
+<!-- ![Demo](demo.gif) -->
+<!-- Uncomment the line above after recording your demo GIF in Phase 8 -->
 
 <br/>
 
@@ -68,20 +67,20 @@ The system orchestrates three specialized AI agents across three distinct proble
 
 | Agent | Domain | What It Does |
 |---|---|---|
-| **Analytics Agent** | Credit portfolio data | Runs DuckDB SQL queries, computes KPIs, detects trends |
-| **Risk / Fraud Agent** | Risk scoring & fraud signals | Rule scoring + trained ML model + SHAP explanations + login anomaly detection |
-| **Policy / RAG Agent** | Internal compliance docs | Semantic retrieval from policy documents with inline citations |
+| **Analytics Agent** | Credit portfolio data | Runs DuckDB SQL queries against 750K+ rows, generates LLM-narrated summaries |
+| **Risk / Fraud Agent** | Risk scoring & fraud signals | Rule scoring + Random Forest (AUC 0.87) + SHAP explanations + login anomaly detection |
+| **Policy / RAG Agent** | Internal compliance docs | Semantic retrieval from 6 policy documents via ChromaDB with inline citations |
 
 A user can ask things like:
 
 ```
-"Which segments saw delinquency increase in the last 90 days and what's driving it?"
+"Which segments have the highest delinquency rate and what's driving it?"
 
 "Investigate customer CUST_004821 — summarize their fraud risk and what action to take."
 
 "What does policy say about credit line increases for customers with a risk score above 60?"
 
-"Flag login anomalies from the last 48 hours and cross-reference with unusual spending."
+"Customer CUST_000042 has a high risk score — what action does policy recommend?"
 ```
 
 The system classifies the intent, routes through the right combination of agents, runs real data queries and ML inference, retrieves relevant policy documents, applies PII masking, and returns a unified cited response — all in a single interaction.
@@ -193,29 +192,23 @@ The first node on every query. Makes a single LLM call at `temperature=0` to:
 This is deterministic by design — using `temperature=0` ensures consistent routing behavior that can be tested and audited.
 
 ### 2. Analytics Agent
-Runs real SQL against the synthetic portfolio and transaction data using DuckDB. Key queries include:
-- Delinquency rate by segment with configurable time windows
-- Top-N customers by risk score, optionally filtered by segment
-- Early-warning pattern: customers with high utilization but no delinquency yet
-- Cross-border spend spike detection (spend > 2× 30-day average)
-
-Results are passed to an LLM call that generates a 3–4 sentence narrative summary with specific numbers and flags.
+Runs real SQL against the synthetic portfolio and transaction data using DuckDB. Core queries include:
+- Delinquency rate by segment (Subprime: 17.6%, Standard: 4.4%, Premium: 4.6%, etc.)
+- Cross-border transaction summary with volume and largest single transaction per segment
+- All results passed to GPT-4o-mini for a 2-3 paragraph analyst-grade narrative summary
 
 ### 3. Risk / Fraud Agent
 Two-layer scoring pipeline:
-- **Layer 1 — Rule engine:** Fast, deterministic, always runs. Six rules contribute to a 0–100 score.
-- **Layer 2 — ML model:** Random Forest trained on 150K real records. Returns a probability (0.0–1.0) plus a SHAP breakdown of the top 3 contributing features.
-
-Also runs a login anomaly detector against the authentication event table — scoring accounts by combinations of new device, foreign IP, and failed attempt velocity.
+- **Layer 1 — Rule engine:** Fast, deterministic, always runs. Seven rules contribute to a 0–100 score.
+- **Layer 2 — ML model:** Random Forest trained on 150K real GMSC records. Returns a probability (0.0–1.0) plus a SHAP breakdown of the top 3 contributing features.
+- **Combined score:** 50% rule score + 50% ML probability × 100.
 
 ### 4. Policy / RAG Agent
 Full retrieval-augmented generation pipeline:
-- Receives the user query (plus any analytics/risk context from upstream agents if the intent is `mixed`)
-- Embeds the query using `sentence-transformers/all-MiniLM-L6-v2`
+- Embeds the query using `sentence-transformers/all-MiniLM-L6-v2` (local, no API cost)
 - Retrieves the top-3 most relevant policy chunks from ChromaDB
-- Passes retrieved chunks + context to GPT-4o-mini for a cited answer
-
-The key feature for `mixed` queries: the policy agent receives upstream agent outputs as additional context, enabling it to return a *specific* policy recommendation rather than a generic one.
+- For `mixed` queries: receives upstream agent outputs (risk score, flags) as additional context
+- GPT-4o-mini generates a cited answer referencing specific policy sections
 
 ### 5. Security Node
 Runs unconditionally on every response path. Applies:
@@ -237,38 +230,41 @@ workflow_id | timestamp | intent | user_role | tools_used | risk_flags | latency
 Three synthetic tables — 750,000+ total rows — calibrated to match the statistical distributions of real publicly available credit datasets.
 
 ### Why Synthetic?
-Real card portfolio data is protected under PCI-DSS and is never publicly available. Rather than using uncalibrated random data, the synthetic tables are generated to match the distributions observed in the [Give Me Some Credit](https://www.kaggle.com/competitions/GiveMeSomeCredit) (150K records) and [Amex Default Prediction](https://www.kaggle.com/competitions/amex-default-prediction) Kaggle datasets. Delinquency rates, utilization distributions, charge-off timing, and login anomaly rates all match empirical real-world benchmarks.
+Real card portfolio data is protected under PCI-DSS and is never publicly available. Rather than using uncalibrated random data, the synthetic tables are generated to match the distributions observed in the [Give Me Some Credit](https://www.kaggle.com/competitions/GiveMeSomeCredit) (150K records) Kaggle dataset. Delinquency rates, utilization distributions, charge-off timing, and login anomaly rates all match empirical real-world benchmarks.
 
 ### Portfolio Table — 50,000 customers
 
 | Column | Distribution | Notes |
 |---|---|---|
 | `customer_id` | Sequential `CUST_XXXXXX` | PII target for masking |
-| `segment` | 6 segments, weighted | Mass_Market 35%, Premium 20%, Small_Business 15%, New_To_Credit 10%, High_Value 10%, Near_Prime 10% |
-| `credit_limit` | Log-normal | $500–$100,000 |
-| `utilization_ratio` | Beta(0.8, 2.5) | Right-skewed — most customers below 0.4 |
-| `delinquency_flag` | Segment-specific | 6.7% overall; Near_Prime 12%, High_Value 1.5% |
-| `risk_score` | Composite 0–100 | Derived from utilization + delinquency + product + noise |
+| `segment` | 5 segments, weighted | Standard 40%, Subprime 20%, New_To_Credit 15%, High_Value 15%, Premium 10% |
+| `product_type` | Segment-specific | PRODUCT_MAP ensures Subprime can't get Signature cards |
+| `credit_limit` | Normal, segment-driven | Premium μ=$15K, Standard μ=$7.5K, Subprime μ=$3K, floor $500 |
+| `utilization_ratio` | Beta(2, 5), Subprime Beta(5, 2) | Right-skewed; Subprime elevated — matches real GMSC Cell 4 |
+| `delinquency_flag` | Segment-specific | ~7.0% overall; Subprime 18%, others 4.2% |
+| `risk_score` | Composite 0–100 | delinquency×35 + utilization×40 + noise(±8) |
+| `monthly_income` | Log-normal, segment-driven | High_Value μ=$9.9K, Subprime μ=$3K |
+| `months_since_last_delinquency` | Conditional | 1–24 for delinquent customers, 0 otherwise |
 | `open_date` | Uniform, last 5 years | Drives cohort analysis |
 
 ### Transactions Table — 500,000 rows
 
 | Column | Notes |
 |---|---|
-| `avg_spend_30d` | Log-normal, scaled by credit limit |
-| `max_txn_amt_30d` | Large transaction spike detection |
-| `merchant_category` | Cash_Advance weighted higher for high-utilization customers — realistic distress signal |
-| `country` | 85% US / 15% cross-border |
-| `charge_off_flag` | ~1.9% rate — always lower than delinquency, 45–60 day realistic lag |
+| `avg_spend_30d` | Log-normal, proportional to credit limit |
+| `max_txn_amt_30d` | 1.5–8× avg_spend — large transaction spike detection |
+| `merchant_category` | Cash_Advance weighted 10× higher for utilization > 0.8 — realistic distress signal |
+| `country` | 85% US / 15% cross-border (UK, CA, DE, FR, MX, IN, CN, etc.) |
+| `charge_off_flag` | ~1.2% rate — 18% of delinquent accounts charge off |
 
 ### Login Events Table — 200,000 rows
 
 | Column | Notes |
 |---|---|
-| `failed_attempts_24h` | Poisson-distributed; anomalous sessions inject 3–8 |
-| `new_device_flag` | 5% of sessions; 100% of anomalous sessions |
-| `ip_country` | 90% US; anomalous sessions always foreign |
-| `is_anomalous` | Ground truth label — 0.5% rate |
+| `failed_attempts_24h` | Normal: 0–5 (mostly 0); Anomalous: 3–10 |
+| `new_device_flag` | 8% base rate; 100% of anomalous sessions |
+| `ip_country` | 80% US; anomalous sessions forced to RU/CN/NG/BR |
+| `login_success` | Anomalous sessions: 40% success rate; Normal: ~100% |
 
 <br/>
 
@@ -284,44 +280,45 @@ Two-layer hybrid scoring combining rule-based heuristics and a probabilistic ML 
 | Rule | Condition | Score |
 |---|---|---|
 | High utilization | `utilization_ratio > 0.85` | +20 pts |
+| Elevated utilization | `utilization_ratio > 0.70` | +10 pts |
 | Active delinquency | `delinquency_flag = 1` | +30 pts |
 | Recent charge-off | `charge_off_flag = 1` | +35 pts |
 | Large transaction spike | `max_txn > avg_spend × 4` | +12 pts |
 | Cross-border activity | `is_cross_border = 1` | +8 pts |
-| Login anomaly (full) | new device + foreign IP + `fails ≥ 3` | +25 pts |
+| Login anomaly (full) | new device + `fails ≥ 3` | +25 pts |
 | Login anomaly (partial) | `fails ≥ 3` only | +12 pts |
 
 **ML Layer:**
 ```
 Training Data:    Give Me Some Credit — 150,000 real labeled records
-Model:            Random Forest, 200 trees, max_depth=8
-Class Imbalance:  SMOTE oversampling
+Model:            Random Forest, 200 trees, max_depth=12, class_weight=balanced
 Final Score:      50% rule score + 50% ML probability × 100
 
-───────────────────────────────────────────
+───────────────────────────────────────────────────────────
   Metric                        Score
-───────────────────────────────────────────
-  AUC-ROC                       ~0.79
-  KS Statistic                  ~0.44
-  Precision @ Top 10%           ~0.25
-  Lift @ Top 10%                ~3.7×
-  Baseline (random)              0.067
-───────────────────────────────────────────
+───────────────────────────────────────────────────────────
+  AUC-ROC (test set)             0.8664
+  5-Fold CV AUC                  0.8590 ± 0.0044
+  KS Statistic                   0.5745
+  Precision @ Top 10%            0.3650
+  Lift @ Top 10%                 ~5.5×
+  Baseline delinquency rate      0.0668 (6.68%)
+───────────────────────────────────────────────────────────
 ```
 
-*All metrics are from a real train/test split on real labeled data — not synthetic benchmarks.*
+*All metrics are from a real train/test split on real labeled data — not synthetic benchmarks. The tight CV standard deviation (0.0044) and minimal test-CV gap (0.0074) confirm the model is stable and not overfit.*
 
 ### SHAP Explainability
 
-Every prediction returns a plain-English breakdown of the top 3 contributing features:
+Every prediction returns a plain-English breakdown of the top 3 contributing features via `TreeExplainer`:
 
 ```
-Risk Level: HIGH  |  Combined Score: 67  |  ML Probability: 71%
-
-Top risk drivers:
-  utilization_ratio     increases risk   (+0.31 SHAP)
-  times_90d_late        increases risk   (+0.18 SHAP)
-  monthly_income        decreases risk   (−0.09 SHAP)
+Customer CUST_029679: combined risk score 65.7 (rule=45, ml=86.5%)
+Key drivers:
+  times_90d_late     increases risk   (+0.305 SHAP)
+  past_due_60_89     increases risk   (+0.140 SHAP)
+  utilization        decreases risk   (−0.106 SHAP)
+Flags: HIGH_UTILIZATION, DELINQUENT
 ```
 
 This is real SHAP via `TreeExplainer` — not templated text — meaning every customer gets a prediction-specific explanation.
@@ -333,29 +330,29 @@ This is real SHAP via `TreeExplainer` — not templated text — meaning every c
 ## 📚 RAG Pipeline
 
 ### Knowledge Base
-Six synthetic policy documents written in realistic internal-policy style, covering the key decision scenarios a risk analyst would face:
+Six policy documents written in realistic internal-policy style with specific numbers, thresholds, and SLAs:
 
 | Document | Key Contents |
 |---|---|
-| `cross_border_risk_policy.md` | Escalation thresholds, Level 1/2/3 response procedures, customer notification requirements |
-| `credit_line_increase_guidelines.md` | Eligibility by risk score, increase amount limits, segment-specific exceptions |
-| `login_security_best_practices.md` | MFA requirements, device trust policy, anomaly response SLAs |
-| `incident_response_playbook.md` | Fraud confirmation steps, account freeze criteria, P0/P1/P2 definitions |
-| `delinquency_collections_policy.md` | DPD stages (30/60/90/120+), intervention types, charge-off timing at 180 DPD |
-| `new_customer_risk_guidelines.md` | First-90-day spending limits, velocity controls, monitoring frequency by segment |
+| `cross_border_risk_policy.md` | Level 1/2/3 escalation at 150%/200%/200%+new-device thresholds, $1,000 72-hour limit |
+| `credit_line_increase_guidelines.md` | Risk score tiers: 0-25 (50% increase), 26-35 (30%), 36-44 (15%), 45+ (ineligible) |
+| `login_security_best_practices.md` | Yellow/Orange/Red alerts at 3-4/5-7/8+ failed attempts, MFA triggers, device trust |
+| `incident_response_playbook.md` | P0-P3 severity definitions, 15min/1hr/4hr/48hr response SLAs, RACI matrix |
+| `delinquency_collections_policy.md` | 30/60/90/120/180 DPD stages, settlement offers 40-70% by segment, charge-off at 180 DPD |
+| `new_customer_risk_guidelines.md` | First-90-day caps: Premium $5K/txn, Subprime $1.5K/txn, New_To_Credit no cash advance |
 
 ### Pipeline
 
 ```
 User query
     → Embed:    sentence-transformers/all-MiniLM-L6-v2  (local, no API cost)
-    → Retrieve: top-3 chunks by cosine similarity from ChromaDB
+    → Retrieve: top-3 chunks by cosine similarity from ChromaDB (12 total chunks)
     → Augment:  upstream agent outputs injected as context (for mixed queries)
-    → Generate: GPT-4o-mini produces answer with inline citations
-    → Return:   { answer, citations: [{ source, relevance_score }] }
+    → Generate: GPT-4o-mini produces answer with [SOURCE N] citations
+    → Return:   { answer, sources: ["cross_border_risk_policy", ...] }
 ```
 
-Chunk size: 400 words with 50-word overlap to preserve section context across boundaries.
+Chunk size: 400 words with 50-word overlap. 12 total chunks across 6 documents.
 
 <br/>
 
@@ -380,7 +377,7 @@ Runs unconditionally on every response before it reaches the frontend. Pattern-m
 ### Audit Logging
 Every query writes a row to `logs/audit_log.csv`:
 ```
-workflow_id | timestamp | intent | user_role | tools_used | risk_flags | latency_ms | has_customer_query
+workflow_id | timestamp | intent | user_role | tools_used | risk_flags | latency_ms | has_customer
 ```
 
 Aggregate metrics exposed at `GET /metrics` — queryable without accessing raw logs.
@@ -397,13 +394,12 @@ Aggregate metrics exposed at `GET /metrics` — queryable without accessing raw 
 | **LLM** | GPT-4o-mini | Reliable structured JSON outputs for intent classification; ~$0.80 total project cost |
 | **Data** | DuckDB + Parquet | In-process SQL on flat files — zero infrastructure, fast columnar queries |
 | **ML Model** | Scikit-learn Random Forest | Interpretable, fast inference, native SHAP `TreeExplainer` support |
-| **Explainability** | SHAP `TreeExplainer` | Exact attribution for tree models — mathematically correct, not approximations |
+| **Explainability** | SHAP `TreeExplainer` | Exact per-prediction attribution for tree models — mathematically correct |
 | **Embeddings** | sentence-transformers/all-MiniLM-L6-v2 | Runs fully locally — no API calls or cost for RAG retrieval |
-| **Vector Store** | ChromaDB | Persistent to disk, simple setup, no separate server process |
+| **Vector Store** | ChromaDB 0.4.24 | Persistent to disk, pre-built Windows wheels, no C++ compiler needed |
 | **Backend** | FastAPI + Uvicorn | Async, auto-generates Swagger docs at `/docs`, production-standard |
-| **Frontend** | Streamlit | Multi-page chat UI with session state, rapid iteration |
+| **Frontend** | Streamlit | Multi-page chat UI with session state, agent trace expander |
 | **Visualizations** | Plotly | Interactive charts for the analytics dashboard page |
-| **Class Imbalance** | SMOTE (imbalanced-learn) | Synthetic minority oversampling — handles the 6.7% positive class rate in training data |
 
 <br/>
 
@@ -412,14 +408,14 @@ Aggregate metrics exposed at `GET /metrics` — queryable without accessing raw 
 ## 📁 Project Structure
 
 ```
-amex-risk-copilot/
+Risk-Copilot/
 │
 ├── data/
-│   ├── raw/                         ← Downloaded Kaggle datasets (gitignored)
+│   ├── raw/                         ← Downloaded GMSC dataset (gitignored)
 │   ├── synthetic/                   ← Generated .parquet files (gitignored)
-│   └── processed/                   ← Cleaned data for ML training
+│   └── processed/
 │
-├── policies/                        ← Six synthetic internal policy documents
+├── policies/                        ← Six internal policy documents
 │   ├── cross_border_risk_policy.md
 │   ├── credit_line_increase_guidelines.md
 │   ├── login_security_best_practices.md
@@ -429,7 +425,7 @@ amex-risk-copilot/
 │
 ├── src/
 │   ├── state.py                     ← AgentState TypedDict — shared memory
-│   ├── graph.py                     ← LangGraph wiring + routing logic
+│   ├── graph.py                     ← LangGraph wiring + conditional routing
 │   ├── run_test.py                  ← End-to-end graph verification script
 │   │
 │   ├── agents/
@@ -443,7 +439,7 @@ amex-risk-copilot/
 │   │   ├── risk_node.py             ← LangGraph wrapper for risk_agent
 │   │   ├── policy_node.py           ← LangGraph wrapper for policy_agent
 │   │   ├── security.py              ← PII masking + RBAC enforcement
-│   │   └── logging_node.py          ← Audit log writer
+│   │   └── logging_node.py          ← CSV audit log writer
 │   │
 │   ├── api/
 │   │   └── main.py                  ← FastAPI: /chat, /health, /metrics
@@ -462,12 +458,12 @@ amex-risk-copilot/
 │   └── shap_explainer.pkl
 │
 ├── notebooks/
-│   ├── 01_real_data_eda.ipynb       ← EDA on real Kaggle data + distribution analysis
+│   ├── 01_real_data_eda.ipynb       ← EDA on real GMSC data + distribution analysis
 │   └── 02_risk_model_training.ipynb ← Full training pipeline, metrics, SHAP plots
 │
 ├── tests/
 │   ├── test_risk_agent.py           ← Unit tests: rule scoring logic
-│   ├── test_policy_agent.py         ← Unit tests: RAG retrieval
+│   ├── test_policy_agent.py         ← Unit tests: RAG retrieval quality
 │   └── test_graph.py                ← Integration tests: full graph routing
 │
 ├── logs/
@@ -476,7 +472,6 @@ amex-risk-copilot/
 ├── .env                             ← API keys — never committed
 ├── .gitignore
 ├── requirements.txt
-├── docker-compose.yml               ← Postgres for production persistence
 └── README.md
 ```
 
@@ -489,29 +484,27 @@ amex-risk-copilot/
 The project is built in 8 sequential phases. Each phase produces a working, testable artifact before the next begins.
 
 ```
-Phase 0  ██████████  COMPLETE     Software installation, SSH, GitHub setup
-Phase 1  ██████████  COMPLETE     Repo structure, virtual environment, all dependencies
-Phase 2  ██████████  COMPLETE     Synthetic data generator, DuckDB loader, real data EDA
-Phase 3  ██████████  COMPLETE     Policy documents, ChromaDB ingestion, RAG pipeline
-Phase 4  ██████████  COMPLETE     ML model training (AUC 0.79), SHAP, analytics + risk agents
-Phase 5  ▓▓▓░░░░░░░  IN PROGRESS  LangGraph state, orchestrator, full graph wiring
-Phase 6  ░░░░░░░░░░  PENDING      FastAPI backend — /chat, /health, /metrics endpoints
-Phase 7  ░░░░░░░░░░  PENDING      Streamlit chat UI, role selector, analytics dashboard
-Phase 8  ░░░░░░░░░░  PENDING      pytest suite, README polish, demo GIF, v1.0.0 tag
+Phase 0  ██████████  COMPLETE     Software installation, Python 3.11 venv setup
+Phase 1  ██████████  COMPLETE     Repo structure, requirements.txt (numpy<2), .env, .gitignore
+Phase 2  ██████████  COMPLETE     Synthetic data generator (750K rows), DuckDB loader, real data EDA
+Phase 3  ██████████  COMPLETE     Policy documents, ChromaDB ingestion (12 chunks), RAG pipeline
+Phase 4  ██████████  COMPLETE     ML model training (AUC 0.87), SHAP explainer, risk + analytics agents
+Phase 5  ██████████  COMPLETE     LangGraph AgentState, orchestrator, all nodes, full graph wired
+Phase 6  ██████████  COMPLETE     FastAPI backend — /chat, /health, /metrics endpoints
+Phase 7  ██████████  COMPLETE     Streamlit chat UI, role selector, agent trace, analytics dashboard
+Phase 8  ▓▓▓░░░░░░░  IN PROGRESS  pytest suite, README polish, demo GIF, v1.0.0 tag
 ```
 
-**What is already functional:**
-- Synthetic portfolio, transaction, and login datasets (750K+ rows, calibrated distributions)
-- ChromaDB vector store with all 6 policy documents indexed and retrievable
-- Random Forest risk model trained on 150K real records with SHAP explainability
-- Standalone analytics agent with 5 core DuckDB query functions
-- Standalone risk agent with rule scoring + ML inference + login anomaly detection
-- Standalone RAG pipeline with policy retrieval and inline citations
-
-**What is being built next:**
-- LangGraph `StateGraph` wiring all agents with conditional routing
-- FastAPI REST backend exposing the graph as HTTP endpoints
-- Streamlit conversational UI with agent trace visibility and analytics dashboard
+**What is functional today:**
+- Synthetic portfolio, transaction, and login datasets (750K+ rows, calibrated to real GMSC distributions)
+- ChromaDB vector store with all 6 policy documents indexed (12 chunks, 578–794 words each)
+- Random Forest risk model trained on 150K real records (AUC 0.87, CV-validated at 0.859 ± 0.004)
+- LangGraph orchestrator with 4-way intent routing (analytics, risk_fraud, policy, mixed)
+- Full agent pipeline: orchestrator → agent(s) → security → logging on every query
+- FastAPI REST backend with Swagger UI at `/docs`
+- Streamlit chat UI with agent trace expander and analytics dashboard page
+- PII masking and role-based access control on every response path
+- CSV audit logging with latency tracking
 
 <br/>
 
@@ -519,23 +512,22 @@ Phase 8  ░░░░░░░░░░  PENDING      pytest suite, README polis
 
 ## ⚙️ Setup & Running
 
-> ⚠️ Full setup instructions will be finalized at Phase 8. The following covers getting the current working components running locally.
-
 ### Prerequisites
-- Python 3.11 specifically — LangGraph has compatibility issues with 3.12+
+- Python 3.11 specifically — **not 3.12 or 3.13** (LangGraph + ChromaDB + NumPy compatibility)
+- `numpy<2` in requirements.txt (ChromaDB 0.4.24 requires NumPy 1.x)
 - Git with SSH configured
 - OpenAI API key from [platform.openai.com](https://platform.openai.com/api-keys)
-- Kaggle account for dataset downloads
+- Kaggle account for GMSC dataset download
 
 ### Installation
 
 ```bash
 # 1. Clone
-git clone git@github.com:YourUsername/amex-risk-copilot.git
-cd amex-risk-copilot
+git clone git@github.com:YourUsername/Risk-Copilot.git
+cd Risk-Copilot
 
 # 2. Create virtual environment with Python 3.11
-python -m venv venv
+py -3.11 -m venv venv
 .\venv\Scripts\activate          # Windows
 # source venv/bin/activate       # macOS / Linux
 
@@ -547,53 +539,52 @@ pip install -r requirements.txt
 #    CHROMA_DB_PATH=./chroma_db
 #    DATA_PATH=./data/synthetic
 
-# 5. Generate synthetic datasets
+# 5. Download GMSC dataset
+cd data\raw
+kaggle competitions download -c GiveMeSomeCredit
+# Unzip to data/raw/GiveMeSomeCredit/
+
+# 6. Generate synthetic datasets
+cd ..\..
 python src/utils/data_generator.py
 
-# 6. Ingest policy documents into ChromaDB
+# 7. Ingest policy documents into ChromaDB
 python -c "from src.agents.policy_agent import ingest_policies; ingest_policies()"
 
-# 7. Train the risk model
-#    Download: kaggle competitions download -c GiveMeSomeCredit
-#    Then run all cells in: notebooks/02_risk_model_training.ipynb
+# 8. Train the risk model
+#    Run all cells in: notebooks/02_risk_model_training.ipynb
 ```
 
-### Testing What Is Built So Far
+### Running the Full Application
 
 ```bash
-# Analytics agent
-python -c "
-from src.agents.analytics_agent import get_delinquency_by_segment
-for r in get_delinquency_by_segment(): print(r)
-"
-
-# Risk agent
-python -c "
-from src.agents.risk_agent import score_customer
-print(score_customer('CUST_000001'))
-"
-
-# RAG pipeline
-python -c "
-from src.agents.policy_agent import answer_policy_question
-result = answer_policy_question('What are the escalation steps for cross-border transactions?')
-print(result['answer'])
-print('Citations:', result['citations'])
-"
-```
-
-### Running the Full Application *(available after Phase 6–7)*
-
-```bash
-# Terminal 1 — API server
+# Terminal 1 — API server (keep running)
+.\venv\Scripts\activate
 uvicorn src.api.main:app --reload --port 8000
 
 # Terminal 2 — Streamlit UI
-streamlit run src/app.py
+.\venv\Scripts\activate
+streamlit run src\app.py
 
-# UI:          http://localhost:8501
-# API docs:    http://localhost:8000/docs
-# Metrics:     http://localhost:8000/metrics
+# Access points:
+#   Chat UI:          http://localhost:8501
+#   Analytics page:   http://localhost:8501/analytics_dashboard
+#   API docs:         http://localhost:8000/docs
+#   Health check:     http://localhost:8000/health
+#   Metrics:          http://localhost:8000/metrics
+```
+
+### Verifying the Graph
+
+```bash
+# Run the 4-query end-to-end test
+python -m src.run_test
+
+# Expected: all 4 intents route correctly
+# analytics → orchestrator, analytics_agent, security_node, logging_node
+# policy    → orchestrator, policy_agent, security_node, logging_node
+# risk      → orchestrator, risk_agent, security_node, logging_node
+# mixed     → orchestrator, analytics_agent, risk_agent, policy_agent, security_node, logging_node
 ```
 
 <br/>
@@ -609,13 +600,16 @@ LangChain provides components — LLMs, tools, prompts. LangGraph provides orche
 DuckDB exposes a full SQL interface on Parquet files with zero infrastructure overhead — no server, no connection pool, no data loading step. The Analytics Agent can run complex multi-table joins in milliseconds. It also makes the analytics layer more maintainable: SQL is readable by any data professional, while deeply nested Pandas code is opaque to anyone who didn't write it.
 
 **Why a hybrid synthetic + real data strategy?**
-Real card portfolio data is PCI-DSS protected and unavailable publicly. Purely random synthetic data is statistically meaningless and immediately obvious to any financial services professional. The hybrid approach uses real public datasets to study empirical distributions — delinquency rates, utilization curves, charge-off timing — and generates synthetic data calibrated to those distributions. The ML model is trained on real labeled data, so the AUC-ROC metric is genuine rather than self-reported against synthetic labels.
+Real card portfolio data is PCI-DSS protected and unavailable publicly. Purely random synthetic data is statistically meaningless and immediately obvious to any financial services professional. The hybrid approach uses real public datasets to study empirical distributions — delinquency rates, utilization curves, charge-off timing — and generates synthetic data calibrated to those distributions. The ML model is trained on real labeled data, so the AUC-ROC metric (0.87) is genuine rather than self-reported against synthetic labels.
 
 **Why SHAP over standard feature importance?**
 Random Forest feature importance tells you which features matter globally across the entire training set. SHAP tells you which features drove *this specific prediction* for *this specific customer*, with direction and magnitude. For a risk investigation tool, per-prediction explainability is the primary value — an analyst needs to know *why this customer was flagged*, not that utilization is generally predictive.
 
 **Why separate Security and Logging nodes instead of embedding them in each agent?**
 Separating these as dedicated graph nodes means every query path — regardless of intent — goes through the same masking logic and the same audit writer. If PII masking were embedded in each agent individually, there would be three independent implementations that could diverge over time. One node, one implementation, unconditional execution.
+
+**Why ChromaDB 0.4.24 and NumPy < 2?**
+ChromaDB 0.5.x requires C++ Build Tools to compile on Windows. Version 0.4.24 has pre-built wheels that install cleanly. However, 0.4.24 references `np.float_` which was removed in NumPy 2.0. Pinning `numpy<2` in requirements.txt resolves this — all other packages (pandas, scikit-learn, SHAP) work identically on NumPy 1.26.
 
 <br/>
 
@@ -644,9 +638,5 @@ This project is a portfolio demonstration and local development tool. A real dep
 **Built to demonstrate production-grade agentic AI applied to a real financial services domain**
 
 *LangGraph · Multi-Agent Orchestration · Explainable ML · RAG · FastAPI · Risk Analytics*
-
-<br/>
-
-![Visitors](https://img.shields.io/badge/Status-Building-blue?style=flat-square)
 
 </div>
