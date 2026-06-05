@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from langchain_core.messages import HumanMessage
 from src.graph import GRAPH
 from dotenv import load_dotenv
+from src.utils.db import run_query
 load_dotenv()
 
 app = FastAPI(
@@ -101,3 +102,20 @@ async def metrics():
         'intent_breakdown': intents,
         'avg_latency_ms':   round(avg_lat, 1),
     }
+
+@app.get('/analytics/segments')
+async def analytics_segments():
+    """
+    Segment data for the React dashboard. Direct DuckDB query —
+    no LLM call, no token cost, sub-50ms response.
+    """
+    return run_query("""
+        SELECT segment,
+               COUNT(*) as customers,
+               ROUND(AVG(delinquency_flag) * 100, 2) as delinq_pct,
+               ROUND(AVG(utilization_ratio) * 100, 1) as util_pct,
+               ROUND(AVG(risk_score), 1) as avg_risk
+        FROM portfolio
+        GROUP BY segment
+        ORDER BY delinq_pct DESC
+    """)

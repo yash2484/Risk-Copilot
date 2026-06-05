@@ -223,3 +223,7 @@ data/synthetic/
 models/*.pkl
 *.parquet
 .env
+
+
+
+frontend/node_modules/
