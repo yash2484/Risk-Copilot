@@ -19,20 +19,18 @@
 
 <br/>
 
-![Status](https://img.shields.io/badge/Status-Phases%201--7%20Complete-green?style=for-the-badge)
+![Status](https://img.shields.io/badge/Status-v1.0.0%20Complete-brightgreen?style=for-the-badge)
 ![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python&logoColor=white)
 ![LangGraph](https://img.shields.io/badge/LangGraph-Multi--Agent-FF6B35?style=for-the-badge)
 ![FastAPI](https://img.shields.io/badge/FastAPI-Backend-009688?style=for-the-badge&logo=fastapi&logoColor=white)
 ![Scikit-Learn](https://img.shields.io/badge/Scikit--Learn-RF%20%7C%20SHAP-F7931E?style=for-the-badge&logo=scikit-learn&logoColor=white)
 ![ChromaDB](https://img.shields.io/badge/ChromaDB-RAG-6C3483?style=for-the-badge)
-![Streamlit](https://img.shields.io/badge/Streamlit-UI-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white)
+![React](https://img.shields.io/badge/React-Frontend-61DAFB?style=for-the-badge&logo=react&logoColor=black)
 
 <br/>
 
 <!-- ![Demo](demo.gif) -->
-<!-- Uncomment the line above after recording your demo GIF in Phase 8 -->
-
-<br/>
+<!-- Uncomment the line above after recording your demo GIF -->
 
 ---
 
@@ -54,8 +52,6 @@
 - [Setup & Running](#-setup--running)
 - [Key Design Decisions](#-key-design-decisions)
 - [What Gets Added in Production](#-what-gets-added-in-production)
-
-<br/>
 
 ---
 
@@ -85,8 +81,6 @@ A user can ask things like:
 
 The system classifies the intent, routes through the right combination of agents, runs real data queries and ML inference, retrieves relevant policy documents, applies PII masking, and returns a unified cited response — all in a single interaction.
 
-<br/>
-
 ---
 
 ## 🧩 The Problem It Solves
@@ -104,8 +98,6 @@ A typical analyst investigating a suspicious account might need to:
 
 That process takes **30–45 minutes** across multiple tools. This copilot collapses it into a **single natural-language query answered in under 15 seconds** — with the data, the ML score, the SHAP explanation, and the relevant policy section all returned together.
 
-<br/>
-
 ---
 
 ## 🏗️ Architecture
@@ -115,7 +107,7 @@ The system is built as a **directed stateful graph** using LangGraph. Every quer
 ```
                      ┌──────────────────────────────────┐
                      │           User Query              │
-                     │    (Streamlit UI or REST API)     │
+                     │     (React UI or REST API)        │
                      └───────────────┬──────────────────┘
                                      │
                                      ▼
@@ -177,51 +169,27 @@ The system is built as a **directed stateful graph** using LangGraph. Every quer
 | `policy` | Orchestrator → Policy/RAG → Security → Log | Policy, guideline, procedure questions |
 | `mixed` | Orchestrator → Analytics → Risk → Policy → Security → Log | Combined data + policy questions |
 
-<br/>
-
 ---
 
 ## 🤖 Agent Design
 
 ### 1. Orchestrator Node
-The first node on every query. Makes a single LLM call at `temperature=0` to:
-- Classify the user's intent into one of four categories
-- Extract entities: `customer_id`, `segment`, `date_range_days`, `top_n`
-- Return structured JSON that updates the shared `AgentState`
-
-This is deterministic by design — using `temperature=0` ensures consistent routing behavior that can be tested and audited.
+The first node on every query. Makes a single LLM call at `temperature=0` to classify the user's intent into one of four categories, extract entities (`customer_id`, `segment`, `date_range_days`, `top_n`), and return structured JSON that updates the shared `AgentState`. Validates intent against allowed values — falls back to `analytics` if the LLM returns malformed output.
 
 ### 2. Analytics Agent
-Runs real SQL against the synthetic portfolio and transaction data using DuckDB. Core queries include:
-- Delinquency rate by segment (Subprime: 17.6%, Standard: 4.4%, Premium: 4.6%, etc.)
-- Cross-border transaction summary with volume and largest single transaction per segment
-- All results passed to GPT-4o-mini for a 2-3 paragraph analyst-grade narrative summary
+Runs real SQL against the synthetic portfolio and transaction data using DuckDB. Core queries include delinquency rate by segment (Subprime: 17.6%, Standard: 4.4%, Premium: 4.6%) and cross-border transaction summary with volume per segment. All results passed to GPT-4o-mini for a 2-3 paragraph analyst-grade narrative summary.
 
 ### 3. Risk / Fraud Agent
-Two-layer scoring pipeline:
-- **Layer 1 — Rule engine:** Fast, deterministic, always runs. Seven rules contribute to a 0–100 score.
-- **Layer 2 — ML model:** Random Forest trained on 150K real GMSC records. Returns a probability (0.0–1.0) plus a SHAP breakdown of the top 3 contributing features.
-- **Combined score:** 50% rule score + 50% ML probability × 100.
+Two-layer scoring pipeline. **Layer 1 — Rule engine:** fast, deterministic, always runs — seven rules contribute to a 0–100 score. **Layer 2 — ML model:** Random Forest trained on 150K real GMSC records, returns a probability plus a SHAP breakdown of the top 3 contributing features. **Combined score:** 50% rule score + 50% ML probability × 100.
 
 ### 4. Policy / RAG Agent
-Full retrieval-augmented generation pipeline:
-- Embeds the query using `sentence-transformers/all-MiniLM-L6-v2` (local, no API cost)
-- Retrieves the top-3 most relevant policy chunks from ChromaDB
-- For `mixed` queries: receives upstream agent outputs (risk score, flags) as additional context
-- GPT-4o-mini generates a cited answer referencing specific policy sections
+Embeds the query using `sentence-transformers/all-MiniLM-L6-v2` (local, no API cost), retrieves the top-3 most relevant policy chunks from ChromaDB, and for `mixed` queries receives upstream agent outputs as additional context. GPT-4o-mini generates a cited answer referencing specific policy sections.
 
 ### 5. Security Node
-Runs unconditionally on every response path. Applies:
-- Regex-based PII masking: customer IDs (`CUST_****`), card numbers, email addresses
-- Role enforcement: `read_only` users receive only text summaries — raw data tables are stripped
+Runs unconditionally on every response path. Applies regex-based PII masking (customer IDs → `CUST_****`, card numbers, email addresses) and role enforcement (`read_only` users receive only text summaries — raw data tables are stripped).
 
 ### 6. Logging Node
-Appends one row to `logs/audit_log.csv` per query:
-```
-workflow_id | timestamp | intent | user_role | tools_used | risk_flags | latency_ms
-```
-
-<br/>
+Appends one row to `logs/audit_log.csv` per query with workflow_id, timestamp, intent, user_role, tools_used, risk_flags, and latency_ms.
 
 ---
 
@@ -230,7 +198,7 @@ workflow_id | timestamp | intent | user_role | tools_used | risk_flags | latency
 Three synthetic tables — 750,000+ total rows — calibrated to match the statistical distributions of real publicly available credit datasets.
 
 ### Why Synthetic?
-Real card portfolio data is protected under PCI-DSS and is never publicly available. Rather than using uncalibrated random data, the synthetic tables are generated to match the distributions observed in the [Give Me Some Credit](https://www.kaggle.com/competitions/GiveMeSomeCredit) (150K records) Kaggle dataset. Delinquency rates, utilization distributions, charge-off timing, and login anomaly rates all match empirical real-world benchmarks.
+Real card portfolio data is protected under PCI-DSS and is never publicly available. The synthetic tables are generated to match the distributions observed in the [Give Me Some Credit](https://www.kaggle.com/competitions/GiveMeSomeCredit) (150K records) Kaggle dataset. Delinquency rates, utilization distributions, charge-off timing, and login anomaly rates all match empirical real-world benchmarks.
 
 ### Portfolio Table — 50,000 customers
 
@@ -265,8 +233,6 @@ Real card portfolio data is protected under PCI-DSS and is never publicly availa
 | `new_device_flag` | 8% base rate; 100% of anomalous sessions |
 | `ip_country` | 80% US; anomalous sessions forced to RU/CN/NG/BR |
 | `login_success` | Anomalous sessions: 40% success rate; Normal: ~100% |
-
-<br/>
 
 ---
 
@@ -323,8 +289,6 @@ Flags: HIGH_UTILIZATION, DELINQUENT
 
 This is real SHAP via `TreeExplainer` — not templated text — meaning every customer gets a prediction-specific explanation.
 
-<br/>
-
 ---
 
 ## 📚 RAG Pipeline
@@ -354,8 +318,6 @@ User query
 
 Chunk size: 400 words with 50-word overlap. 12 total chunks across 6 documents.
 
-<br/>
-
 ---
 
 ## 🔒 Security & Governance
@@ -382,8 +344,6 @@ workflow_id | timestamp | intent | user_role | tools_used | risk_flags | latency
 
 Aggregate metrics exposed at `GET /metrics` — queryable without accessing raw logs.
 
-<br/>
-
 ---
 
 ## 🛠️ Tech Stack
@@ -398,10 +358,9 @@ Aggregate metrics exposed at `GET /metrics` — queryable without accessing raw 
 | **Embeddings** | sentence-transformers/all-MiniLM-L6-v2 | Runs fully locally — no API calls or cost for RAG retrieval |
 | **Vector Store** | ChromaDB 0.4.24 | Persistent to disk, pre-built Windows wheels, no C++ compiler needed |
 | **Backend** | FastAPI + Uvicorn | Async, auto-generates Swagger docs at `/docs`, production-standard |
-| **Frontend** | Streamlit | Multi-page chat UI with session state, agent trace expander |
-| **Visualizations** | Plotly | Interactive charts for the analytics dashboard page |
-
-<br/>
+| **Frontend** | React 18 + Vite + Tailwind CSS | Dark corporate theme, typing animations, agent trace visualization |
+| **Charts** | Recharts | React-native charting for the analytics dashboard |
+| **Icons** | Lucide React | Clean SVG icon set for the UI |
 
 ---
 
@@ -409,6 +368,22 @@ Aggregate metrics exposed at `GET /metrics` — queryable without accessing raw 
 
 ```
 Risk-Copilot/
+│
+├── frontend/                        ← React application (Vite + Tailwind)
+│   ├── package.json
+│   ├── vite.config.js               ← Proxy: /chat, /health, /metrics → FastAPI :8000
+│   ├── tailwind.config.js           ← Dark corporate color palette
+│   ├── index.html
+│   └── src/
+│       ├── App.jsx                  ← Router + layout
+│       ├── index.css                ← Tailwind + custom animations
+│       ├── pages/
+│       │   ├── Chat.jsx             ← Chat interface with typing animation
+│       │   └── Dashboard.jsx        ← Recharts analytics dashboard
+│       └── components/
+│           ├── Sidebar.jsx          ← Navigation, role selector, API health
+│           ├── ChatMessage.jsx      ← Message bubbles + TypeWriter effect
+│           └── AgentTrace.jsx       ← Color-coded pipeline trace
 │
 ├── data/
 │   ├── raw/                         ← Downloaded GMSC dataset (gitignored)
@@ -442,15 +417,11 @@ Risk-Copilot/
 │   │   └── logging_node.py          ← CSV audit log writer
 │   │
 │   ├── api/
-│   │   └── main.py                  ← FastAPI: /chat, /health, /metrics
+│   │   └── main.py                  ← FastAPI: /chat, /health, /metrics, /analytics/segments
 │   │
-│   ├── utils/
-│   │   ├── data_generator.py        ← Calibrated synthetic data generator
-│   │   └── db.py                    ← DuckDB connection + query runner
-│   │
-│   ├── app.py                       ← Streamlit chat interface
-│   └── pages/
-│       └── analytics_dashboard.py   ← Portfolio analytics visualization page
+│   └── utils/
+│       ├── data_generator.py        ← Calibrated synthetic data generator
+│       └── db.py                    ← DuckDB connection + query runner
 │
 ├── models/
 │   ├── risk_rf_model.pkl            ← Trained Random Forest (gitignored)
@@ -471,17 +442,14 @@ Risk-Copilot/
 │
 ├── .env                             ← API keys — never committed
 ├── .gitignore
+├── pyproject.toml                   ← pytest pythonpath config
 ├── requirements.txt
 └── README.md
 ```
 
-<br/>
-
 ---
 
 ## ✅ Build Progress
-
-The project is built in 8 sequential phases. Each phase produces a working, testable artifact before the next begins.
 
 ```
 Phase 0  ██████████  COMPLETE     Software installation, Python 3.11 venv setup
@@ -490,23 +458,22 @@ Phase 2  ██████████  COMPLETE     Synthetic data generator (
 Phase 3  ██████████  COMPLETE     Policy documents, ChromaDB ingestion (12 chunks), RAG pipeline
 Phase 4  ██████████  COMPLETE     ML model training (AUC 0.87), SHAP explainer, risk + analytics agents
 Phase 5  ██████████  COMPLETE     LangGraph AgentState, orchestrator, all nodes, full graph wired
-Phase 6  ██████████  COMPLETE     FastAPI backend — /chat, /health, /metrics endpoints
-Phase 7  ██████████  COMPLETE     Streamlit chat UI, role selector, agent trace, analytics dashboard
-Phase 8  ▓▓▓░░░░░░░  IN PROGRESS  pytest suite, README polish, demo GIF, v1.0.0 tag
+Phase 6  ██████████  COMPLETE     FastAPI backend — /chat, /health, /metrics, /analytics/segments
+Phase 7  ██████████  COMPLETE     React dark-theme frontend, typing animation, analytics dashboard
+Phase 8  ██████████  COMPLETE     11 pytest tests passing, intent validation fix, v1.0.0 tagged
 ```
 
-**What is functional today:**
+**What is functional:**
 - Synthetic portfolio, transaction, and login datasets (750K+ rows, calibrated to real GMSC distributions)
 - ChromaDB vector store with all 6 policy documents indexed (12 chunks, 578–794 words each)
 - Random Forest risk model trained on 150K real records (AUC 0.87, CV-validated at 0.859 ± 0.004)
-- LangGraph orchestrator with 4-way intent routing (analytics, risk_fraud, policy, mixed)
+- LangGraph orchestrator with intent routing (analytics, risk_fraud, policy, mixed) with validated fallback
 - Full agent pipeline: orchestrator → agent(s) → security → logging on every query
-- FastAPI REST backend with Swagger UI at `/docs`
-- Streamlit chat UI with agent trace expander and analytics dashboard page
+- FastAPI REST backend with Swagger UI at `/docs` and `/analytics/segments` data endpoint
+- React 18 frontend with dark corporate theme, typing animations, agent trace, and Recharts dashboard
 - PII masking and role-based access control on every response path
 - CSV audit logging with latency tracking
-
-<br/>
+- 11 pytest tests passing (unit + integration)
 
 ---
 
@@ -514,6 +481,7 @@ Phase 8  ▓▓▓░░░░░░░  IN PROGRESS  pytest suite, README polis
 
 ### Prerequisites
 - Python 3.11 specifically — **not 3.12 or 3.13** (LangGraph + ChromaDB + NumPy compatibility)
+- Node.js 18+ (for the React frontend)
 - `numpy<2` in requirements.txt (ChromaDB 0.4.24 requires NumPy 1.x)
 - Git with SSH configured
 - OpenAI API key from [platform.openai.com](https://platform.openai.com/api-keys)
@@ -523,7 +491,7 @@ Phase 8  ▓▓▓░░░░░░░  IN PROGRESS  pytest suite, README polis
 
 ```bash
 # 1. Clone
-git clone git@github.com:YourUsername/Risk-Copilot.git
+git clone git@github.com:yash2484/Risk-Copilot.git
 cd Risk-Copilot
 
 # 2. Create virtual environment with Python 3.11
@@ -531,63 +499,63 @@ py -3.11 -m venv venv
 .\venv\Scripts\activate          # Windows
 # source venv/bin/activate       # macOS / Linux
 
-# 3. Install dependencies
+# 3. Install Python dependencies
 pip install -r requirements.txt
 
-# 4. Create .env file in project root:
+# 4. Install frontend dependencies
+cd frontend
+npm install
+cd ..
+
+# 5. Create .env file in project root:
 #    OPENAI_API_KEY=sk-your-key-here
 #    CHROMA_DB_PATH=./chroma_db
 #    DATA_PATH=./data/synthetic
 
-# 5. Download GMSC dataset
+# 6. Download GMSC dataset
 cd data\raw
 kaggle competitions download -c GiveMeSomeCredit
 # Unzip to data/raw/GiveMeSomeCredit/
-
-# 6. Generate synthetic datasets
 cd ..\..
+
+# 7. Generate synthetic datasets
 python src/utils/data_generator.py
 
-# 7. Ingest policy documents into ChromaDB
+# 8. Ingest policy documents into ChromaDB
 python -c "from src.agents.policy_agent import ingest_policies; ingest_policies()"
 
-# 8. Train the risk model
+# 9. Train the risk model
 #    Run all cells in: notebooks/02_risk_model_training.ipynb
 ```
 
 ### Running the Full Application
 
 ```bash
-# Terminal 1 — API server (keep running)
+# Terminal 1 — FastAPI backend (keep running)
 .\venv\Scripts\activate
 uvicorn src.api.main:app --reload --port 8000
 
-# Terminal 2 — Streamlit UI
-.\venv\Scripts\activate
-streamlit run src\app.py
+# Terminal 2 — React frontend
+cd frontend
+npm run dev
 
 # Access points:
-#   Chat UI:          http://localhost:8501
-#   Analytics page:   http://localhost:8501/analytics_dashboard
+#   Chat UI:          http://localhost:3000
+#   Analytics page:   http://localhost:3000/dashboard
 #   API docs:         http://localhost:8000/docs
 #   Health check:     http://localhost:8000/health
 #   Metrics:          http://localhost:8000/metrics
 ```
 
-### Verifying the Graph
+### Running Tests
 
 ```bash
-# Run the 4-query end-to-end test
+# Run the full pytest suite (11 tests)
+pytest tests\ -v
+
+# Run the 4-query end-to-end graph test
 python -m src.run_test
-
-# Expected: all 4 intents route correctly
-# analytics → orchestrator, analytics_agent, security_node, logging_node
-# policy    → orchestrator, policy_agent, security_node, logging_node
-# risk      → orchestrator, risk_agent, security_node, logging_node
-# mixed     → orchestrator, analytics_agent, risk_agent, policy_agent, security_node, logging_node
 ```
-
-<br/>
 
 ---
 
@@ -605,13 +573,14 @@ Real card portfolio data is PCI-DSS protected and unavailable publicly. Purely r
 **Why SHAP over standard feature importance?**
 Random Forest feature importance tells you which features matter globally across the entire training set. SHAP tells you which features drove *this specific prediction* for *this specific customer*, with direction and magnitude. For a risk investigation tool, per-prediction explainability is the primary value — an analyst needs to know *why this customer was flagged*, not that utilization is generally predictive.
 
+**Why React instead of Streamlit?**
+Streamlit is excellent for prototyping but has limitations for portfolio projects: no custom styling, page reruns on every interaction, and no typing animations. The React frontend delivers a dark corporate UI with real chat experience, animated agent traces, and interactive Recharts dashboards — the kind of polish that differentiates a portfolio piece from a demo script.
+
 **Why separate Security and Logging nodes instead of embedding them in each agent?**
 Separating these as dedicated graph nodes means every query path — regardless of intent — goes through the same masking logic and the same audit writer. If PII masking were embedded in each agent individually, there would be three independent implementations that could diverge over time. One node, one implementation, unconditional execution.
 
 **Why ChromaDB 0.4.24 and NumPy < 2?**
 ChromaDB 0.5.x requires C++ Build Tools to compile on Windows. Version 0.4.24 has pre-built wheels that install cleanly. However, 0.4.24 references `np.float_` which was removed in NumPy 2.0. Pinning `numpy<2` in requirements.txt resolves this — all other packages (pandas, scikit-learn, SHAP) work identically on NumPy 1.26.
-
-<br/>
 
 ---
 
@@ -629,14 +598,12 @@ This project is a portfolio demonstration and local development tool. A real dep
 - **Docker Compose** for the full stack — reproducible environment from a single command
 - **PCI-DSS compliance review** before any real cardholder data is introduced into the system
 
-<br/>
-
 ---
 
 <div align="center">
 
 **Built to demonstrate production-grade agentic AI applied to a real financial services domain**
 
-*LangGraph · Multi-Agent Orchestration · Explainable ML · RAG · FastAPI · Risk Analytics*
+*LangGraph · Multi-Agent Orchestration · Explainable ML · RAG · FastAPI · React · Risk Analytics*
 
 </div>
