@@ -35,8 +35,13 @@ def orchestrator_node(state: AgentState) -> dict:
         parsed = {'intent':'analytics','customer_id':None,
                   'segment':None,'date_range_days':90,'top_n':10}
 
+    VALID_INTENTS = {'analytics', 'risk_fraud', 'policy', 'mixed'}
+    raw_intent = parsed.get('intent', 'analytics')
+    # If LLM returned the template string instead of choosing, default to analytics
+    intent = raw_intent if raw_intent in VALID_INTENTS else 'analytics'
+
     return {
-        'intent':        parsed.get('intent','analytics'),
+        'intent':        intent,
         'query_context': {'customer_id':     parsed.get('customer_id'),
                           'segment':         parsed.get('segment'),
                           'date_range_days': parsed.get('date_range_days',90),
