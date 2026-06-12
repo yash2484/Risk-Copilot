@@ -1,129 +1,147 @@
 import { NavLink, useLocation } from 'react-router-dom'
-import { MessageSquare, BarChart3, Shield, ChevronRight, Circle } from 'lucide-react'
 import { useState, useEffect } from 'react'
-
-const EXAMPLES = [
-  'Show segments with the highest delinquency rate',
-  'Investigate customer CUST_000042',
-  'What does policy say about credit line increases?',
-  'Show cross-border spending spikes',
-  'Customer CUST_000042 has high risk — what does policy recommend?',
-]
-
-export default function Sidebar({ role, setRole, onExampleClick }) {
+import { MessageSquareText, LayoutGrid, Command, ShieldCheck, ShieldAlert, Eye } from 'lucide-react'
+ 
+const CLEARANCE = {
+  analyst:   { label: 'Analyst',   desc: 'Full data access',     icon: ShieldCheck, tone: 'text-risk-low' },
+  manager:   { label: 'Manager',   desc: 'Full data access',     icon: ShieldCheck, tone: 'text-risk-low' },
+  read_only: { label: 'Read Only', desc: 'Summaries only',       icon: Eye,         tone: 'text-risk-medium' },
+}
+ 
+export default function Sidebar({ role, setRole, onOpenPalette }) {
   const location = useLocation()
-  const isChat = location.pathname === '/'
   const [apiStatus, setApiStatus] = useState('checking')
-
-  // Check API health every 10 seconds
+  const [metrics, setMetrics] = useState(null)
+ 
   useEffect(() => {
     const check = async () => {
       try {
         const res = await fetch('/health')
-        setApiStatus(res.ok ? 'healthy' : 'error')
+        setApiStatus(res.ok ? 'online' : 'error')
+        const m = await fetch('/metrics')
+        if (m.ok) setMetrics(await m.json())
       } catch {
         setApiStatus('offline')
       }
     }
     check()
-    const interval = setInterval(check, 10000)
+    const interval = setInterval(check, 12000)
     return () => clearInterval(interval)
   }, [])
-
+ 
+  const clearance = CLEARANCE[role]
+  const ClearanceIcon = clearance.icon
+ 
   return (
-    <aside className="w-72 bg-base-800 border-r border-base-600 flex flex-col h-full shrink-0">
-
-      {/* ── Logo ─────────────────────────────────────── */}
-      <div className="p-5 border-b border-base-600">
+    <aside className="w-64 bg-ink-900 border-r border-ink-700 flex flex-col h-full shrink-0">
+ 
+      {/* ── Monogram ───────────────────────────────────── */}
+      <div className="px-5 pt-6 pb-5 border-b border-ink-700">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-accent/20 flex items-center justify-center">
-            <Shield className="w-5 h-5 text-accent" />
+          <div className="w-9 h-9 border border-gold-dim flex items-center justify-center">
+            <span className="font-display text-gold text-lg leading-none">R</span>
           </div>
           <div>
-            <h1 className="text-sm font-semibold text-base-50 tracking-wide">Risk Copilot</h1>
-            <p className="text-xs text-base-300">Multi-Agent System</p>
+            <h1 className="font-display text-[15px] text-bone tracking-wide">Risk Copilot</h1>
+            <p className="font-mono text-[10px] text-ink-300 tracking-widest2 uppercase mt-0.5">Audit Terminal</p>
           </div>
         </div>
       </div>
-
-      {/* ── Navigation ───────────────────────────────── */}
-      <nav className="p-3 space-y-1">
+ 
+      {/* ── Navigation ─────────────────────────────────── */}
+      <nav className="px-3 py-4 space-y-0.5">
         <NavLink to="/"
           className={({ isActive }) =>
-            `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors
-             ${isActive ? 'bg-accent/10 text-accent' : 'text-base-200 hover:bg-base-700 hover:text-base-50'}`
+            `flex items-center gap-3 px-3 py-2 text-[13px] font-medium border-l-2 transition-colors
+             ${isActive
+               ? 'border-gold text-bone bg-ink-800'
+               : 'border-transparent text-ink-300 hover:text-bone hover:bg-ink-800/60'}`
           }>
-          <MessageSquare className="w-4 h-4" />
-          Chat
+          <MessageSquareText className="w-4 h-4" />
+          Inquiry
         </NavLink>
         <NavLink to="/dashboard"
           className={({ isActive }) =>
-            `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors
-             ${isActive ? 'bg-accent/10 text-accent' : 'text-base-200 hover:bg-base-700 hover:text-base-50'}`
+            `flex items-center gap-3 px-3 py-2 text-[13px] font-medium border-l-2 transition-colors
+             ${isActive
+               ? 'border-gold text-bone bg-ink-800'
+               : 'border-transparent text-ink-300 hover:text-bone hover:bg-ink-800/60'}`
           }>
-          <BarChart3 className="w-4 h-4" />
-          Analytics Dashboard
+          <LayoutGrid className="w-4 h-4" />
+          Portfolio
         </NavLink>
       </nav>
-
-      {/* ── Role Selector ────────────────────────────── */}
-      <div className="px-5 py-3 border-t border-base-600">
-        <label className="text-xs font-medium text-base-300 uppercase tracking-wider">Role</label>
-        <select
-          value={role}
-          onChange={e => setRole(e.target.value)}
-          className="mt-1.5 w-full bg-base-700 border border-base-600 rounded-lg px-3 py-2
-                     text-sm text-base-50 focus:outline-none focus:ring-1 focus:ring-accent
-                     cursor-pointer appearance-none"
-        >
-          <option value="analyst">Analyst</option>
-          <option value="manager">Manager</option>
-          <option value="read_only">Read Only</option>
-        </select>
-      </div>
-
-      {/* ── Example Queries (only on chat page) ──────── */}
-      {isChat && (
-        <div className="flex-1 overflow-y-auto px-3 py-3 border-t border-base-600">
-          <p className="px-2 text-xs font-medium text-base-300 uppercase tracking-wider mb-2">
-            Example Queries
-          </p>
-          <div className="space-y-1">
-            {EXAMPLES.map((q, i) => (
+ 
+      {/* ── Command palette hint ───────────────────────── */}
+      <button
+        onClick={onOpenPalette}
+        className="mx-4 mb-4 flex items-center justify-between px-3 py-2 bg-ink-800 border border-ink-700
+                   hover:border-ink-500 text-left group"
+      >
+        <span className="flex items-center gap-2 text-[12px] text-ink-300 group-hover:text-ink-100">
+          <Command className="w-3.5 h-3.5" />
+          Query library
+        </span>
+        <kbd className="font-mono text-[10px] text-ink-400 border border-ink-600 px-1.5 py-0.5">⌘K</kbd>
+      </button>
+ 
+      {/* ── Clearance level ────────────────────────────── */}
+      <div className="px-5 py-4 border-t border-ink-700">
+        <p className="font-mono text-[10px] text-ink-400 tracking-widest2 uppercase mb-2">Clearance</p>
+        <div className="space-y-1">
+          {Object.entries(CLEARANCE).map(([key, c]) => {
+            const Icon = c.icon
+            const active = role === key
+            return (
               <button
-                key={i}
-                onClick={() => {
-                  // Dispatch custom event that Chat page listens to
-                  window.dispatchEvent(new CustomEvent('example-query', { detail: q }))
-                }}
-                className="w-full text-left px-3 py-2 rounded-lg text-xs text-base-200
-                           hover:bg-base-700 hover:text-base-50 transition-colors
-                           flex items-center gap-2 group"
+                key={key}
+                onClick={() => setRole(key)}
+                className={`w-full flex items-center gap-2.5 px-2.5 py-2 text-left border transition-colors
+                  ${active
+                    ? 'border-gold-dim bg-gold-glow'
+                    : 'border-transparent hover:bg-ink-800'}`}
               >
-                <ChevronRight className="w-3 h-3 text-base-400 group-hover:text-accent shrink-0" />
-                <span className="line-clamp-2">{q}</span>
+                <Icon className={`w-3.5 h-3.5 ${active ? c.tone : 'text-ink-400'}`} />
+                <div className="flex-1 min-w-0">
+                  <p className={`text-[12px] font-medium ${active ? 'text-bone' : 'text-ink-300'}`}>{c.label}</p>
+                  {active && <p className="font-mono text-[10px] text-ink-300 mt-0.5">{c.desc}</p>}
+                </div>
               </button>
-            ))}
+            )
+          })}
+        </div>
+      </div>
+ 
+      {/* ── Session ledger ─────────────────────────────── */}
+      {metrics && metrics.total_queries > 0 && (
+        <div className="px-5 py-4 border-t border-ink-700">
+          <p className="font-mono text-[10px] text-ink-400 tracking-widest2 uppercase mb-2">Session Ledger</p>
+          <div className="font-mono text-[11px] space-y-1.5">
+            <div className="flex justify-between">
+              <span className="text-ink-300">Queries</span>
+              <span className="text-bone">{metrics.total_queries}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-ink-300">Avg latency</span>
+              <span className="text-bone">{(metrics.avg_latency_ms / 1000).toFixed(1)}s</span>
+            </div>
           </div>
         </div>
       )}
-
-      {/* ── Status Footer ────────────────────────────── */}
-      <div className="p-4 border-t border-base-600 mt-auto">
+ 
+      {/* ── System status ──────────────────────────────── */}
+      <div className="mt-auto px-5 py-4 border-t border-ink-700">
         <div className="flex items-center gap-2">
-          <Circle
-            className={`w-2.5 h-2.5 fill-current ${
-              apiStatus === 'healthy' ? 'text-risk-low glow-green' :
-              apiStatus === 'checking' ? 'text-risk-medium animate-pulse' :
-              'text-risk-high glow-red'
-            }`}
-          />
-          <span className="text-xs text-base-300">
-            API {apiStatus === 'healthy' ? 'Connected' :
-                 apiStatus === 'checking' ? 'Checking...' : 'Offline'}
+          <span className={`w-1.5 h-1.5 rounded-full ${
+            apiStatus === 'online' ? 'bg-risk-low' :
+            apiStatus === 'checking' ? 'bg-risk-medium animate-pulse-soft' :
+            'bg-risk-high'
+          }`} />
+          <span className="font-mono text-[10px] text-ink-300 tracking-widest2 uppercase">
+            {apiStatus === 'online' ? 'System Online' : apiStatus === 'checking' ? 'Connecting' : 'API Offline'}
           </span>
         </div>
-        <p className="text-xs text-base-400 mt-1">v1.0.0 · FastAPI :8000</p>
+        <p className="font-mono text-[10px] text-ink-400 mt-1.5">v1.0.0 · LangGraph · :8000</p>
       </div>
     </aside>
   )

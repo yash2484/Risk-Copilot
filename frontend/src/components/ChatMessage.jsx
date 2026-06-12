@@ -1,78 +1,80 @@
 import { useState, useEffect, useRef } from 'react'
-import { User, Bot } from 'lucide-react'
-import AgentTrace from './AgentTrace'
-
-function TypeWriter({ text, speed = 12, onComplete }) {
+import { TraceRail } from './PipelineRail'
+ 
+function TypeWriter({ text, onComplete }) {
   const [displayed, setDisplayed] = useState('')
   const [done, setDone] = useState(false)
   const indexRef = useRef(0)
-
+ 
   useEffect(() => {
     if (!text) return
     indexRef.current = 0
     setDisplayed('')
     setDone(false)
-
+ 
+    const chunk = text.length > 400 ? 4 : text.length > 200 ? 3 : 2
     const interval = setInterval(() => {
       indexRef.current += 1
-      // Speed up: render 2-4 chars at a time for long responses
-      const chunkSize = text.length > 300 ? 3 : text.length > 150 ? 2 : 1
-      const nextIndex = Math.min(indexRef.current * chunkSize, text.length)
-      setDisplayed(text.slice(0, nextIndex))
-
-      if (nextIndex >= text.length) {
+      const next = Math.min(indexRef.current * chunk, text.length)
+      setDisplayed(text.slice(0, next))
+      if (next >= text.length) {
         clearInterval(interval)
         setDone(true)
         onComplete?.()
       }
-    }, speed)
-
+    }, 11)
+ 
     return () => clearInterval(interval)
   }, [text])
-
+ 
   return (
-    <span>
+    <span className={done ? '' : 'typing-cursor'}>
       {displayed}
-      {!done && <span className="typing-cursor" />}
     </span>
   )
 }
-
+ 
 export default function ChatMessage({ message }) {
-  const { role, content, trace, isTyping } = message
-
+  const { role, content, trace, isTyping, timestamp } = message
+  const [typingDone, setTypingDone] = useState(!isTyping)
+ 
   if (role === 'user') {
     return (
-      <div className="flex justify-end mb-4 animate-slide-up">
-        <div className="max-w-[70%] flex gap-3">
-          <div className="bg-accent/15 border border-accent/20 rounded-2xl rounded-tr-md px-4 py-3">
-            <p className="text-sm text-base-50 leading-relaxed">{content}</p>
-          </div>
-          <div className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center shrink-0 mt-1">
-            <User className="w-4 h-4 text-accent" />
-          </div>
+      <div className="animate-rise mb-6">
+        <div className="flex items-baseline justify-between mb-1.5">
+          <span className="font-mono text-[10px] text-ink-400 tracking-widest2 uppercase">Inquiry</span>
+          {timestamp && <span className="font-mono text-[10px] text-ink-500">{timestamp}</span>}
+        </div>
+        <div className="border-l-2 border-gold pl-4 py-1">
+          <p className="text-[14px] text-bone leading-relaxed">{content}</p>
         </div>
       </div>
     )
   }
-
-  // Assistant message
+ 
+  // Assistant response — a filed report card
   return (
-    <div className="flex mb-4 animate-slide-up">
-      <div className="max-w-[75%] flex gap-3">
-        <div className="w-8 h-8 rounded-full bg-base-600 flex items-center justify-center shrink-0 mt-1">
-          <Bot className="w-4 h-4 text-base-200" />
+    <div className="animate-rise mb-8">
+      <div className="bg-ink-900 border border-ink-700 p-5">
+        {/* Report header with workflow reference stamp */}
+        <div className="flex items-center justify-between mb-3 pb-3 border-b border-ink-700">
+          <span className="font-mono text-[10px] text-ink-400 tracking-widest2 uppercase">Response</span>
+          {trace?.workflow_id && (
+            <span className="stamp font-mono text-[10px] text-gold-dim border border-gold-dim/40 px-2 py-0.5">
+              REF {trace.workflow_id.slice(0, 8).toUpperCase()}
+            </span>
+          )}
         </div>
-        <div className="bg-base-700 border border-base-600 rounded-2xl rounded-tl-md px-4 py-3">
-          <div className="text-sm text-base-100 leading-relaxed whitespace-pre-wrap">
-            {isTyping ? (
-              <TypeWriter text={content} speed={10} />
-            ) : (
-              content
-            )}
-          </div>
-          {trace && <AgentTrace data={trace} />}
+ 
+        {/* Body */}
+        <div className="text-[14px] text-ink-100 leading-[1.7] whitespace-pre-wrap">
+          {isTyping
+            ? <TypeWriter text={content} onComplete={() => setTypingDone(true)} />
+            : content}
         </div>
+ 
+        {/* Execution trace — only after typing completes */}
+        {(!isTyping || typingDone) && trace && <TraceRail trace={trace} />}
       </div>
     </div>
   )
