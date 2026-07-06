@@ -227,3 +227,6 @@ models/*.pkl
 
 
 frontend/node_modules/
+# Local tooling scratch (visual brainstorm companion, serena)
+.superpowers/
+.serena/

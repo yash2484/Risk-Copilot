@@ -1,23 +1,26 @@
 import { useState, useEffect, useRef } from 'react'
-import { RefreshCw, AlertTriangle } from 'lucide-react'
+import { RefreshCw, AlertTriangle, PanelLeft } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   ScatterChart, Scatter, Cell, ZAxis
 } from 'recharts'
- 
+
+// Segment identity colours, tuned to the ledger palette (accent + semaphore + steel).
 const SEGMENT_TONES = {
-  Subprime:      '#E06450',
-  Standard:      '#6B9BD2',
-  New_To_Credit: '#E0A83E',
-  High_Value:    '#3FB970',
-  Premium:       '#C9A961',
+  Subprime:      '#B23A31', // risk-high
+  Standard:      '#21456E', // accent
+  New_To_Credit: '#9C6612', // risk-medium
+  High_Value:    '#2E7D46', // risk-low
+  Premium:       '#5B7A9E', // steel
 }
- 
-// ── Count-up number animation ─────────────────────────────────
+
+const AXIS_TICK = { fill: '#726B5D', fontSize: 10, fontFamily: 'IBM Plex Mono' }
+const GRID_STROKE = 'rgba(27,23,18,0.08)'
+const AXIS_STROKE = 'rgba(27,23,18,0.14)'
+
 function CountUp({ value, decimals = 0, suffix = '', duration = 900 }) {
   const [display, setDisplay] = useState(0)
   const startRef = useRef(null)
- 
   useEffect(() => {
     if (value == null) return
     startRef.current = null
@@ -25,7 +28,6 @@ function CountUp({ value, decimals = 0, suffix = '', duration = 900 }) {
     const step = (ts) => {
       if (!startRef.current) startRef.current = ts
       const progress = Math.min((ts - startRef.current) / duration, 1)
-      // ease-out cubic
       const eased = 1 - Math.pow(1 - progress, 3)
       setDisplay(value * eased)
       if (progress < 1) raf = requestAnimationFrame(step)
@@ -33,62 +35,58 @@ function CountUp({ value, decimals = 0, suffix = '', duration = 900 }) {
     raf = requestAnimationFrame(step)
     return () => cancelAnimationFrame(raf)
   }, [value, duration])
- 
   return <>{display.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}{suffix}</>
 }
- 
-function Metric({ label, value, decimals = 0, suffix = '', note, tone = 'text-bone' }) {
+
+function Metric({ label, value, decimals = 0, suffix = '', note, tone = 'text-ink' }) {
   return (
-    <div className="bg-ink-900 border border-ink-700 p-5">
-      <p className="font-mono text-[10px] text-ink-400 tracking-widest2 uppercase">{label}</p>
-      <p className={`font-mono text-[28px] mt-2 ${tone}`}>
+    <div className="bg-paper-raised border border-ink/[0.12] rounded-[7px] shadow-card p-5">
+      <p className="font-mono text-[10px] text-ink-faint tracking-widest2 uppercase">{label}</p>
+      <p className={`font-mono text-[28px] mt-2 tabular-nums ${tone}`}>
         <CountUp value={value} decimals={decimals} suffix={suffix} />
       </p>
-      {note && <p className="font-mono text-[10px] text-ink-400 mt-1">{note}</p>}
+      {note && <p className="font-mono text-[10px] text-ink-faint mt-1">{note}</p>}
     </div>
   )
 }
- 
+
 function Panel({ title, children, right }) {
   return (
-    <div className="bg-ink-900 border border-ink-700 p-5">
+    <div className="bg-paper-raised border border-ink/[0.12] rounded-[7px] shadow-card p-5">
       <div className="flex items-baseline justify-between mb-4">
-        <h3 className="font-mono text-[10px] text-ink-400 tracking-widest2 uppercase">{title}</h3>
+        <h3 className="font-mono text-[10px] text-ink-faint tracking-widest2 uppercase">{title}</h3>
         {right}
       </div>
       {children}
     </div>
   )
 }
- 
-function DarkTooltip({ active, payload, label }) {
+
+function LedgerTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null
   return (
-    <div className="bg-ink-800 border border-ink-600 px-3 py-2 shadow-xl">
-      <p className="font-mono text-[11px] text-bone mb-1">{label || payload[0]?.payload?.segment}</p>
+    <div className="bg-paper-raised border border-ink/[0.16] rounded-[5px] px-3 py-2 shadow-lift">
+      <p className="font-mono text-[11px] text-ink mb-1">{label || payload[0]?.payload?.segment}</p>
       {payload.map((p, i) => (
-        <p key={i} className="font-mono text-[11px] text-ink-200">
+        <p key={i} className="font-mono text-[11px] text-ink-text tabular-nums">
           {p.name}: {typeof p.value === 'number' ? p.value.toLocaleString(undefined, { maximumFractionDigits: 2 }) : p.value}
         </p>
       ))}
     </div>
   )
 }
- 
-export default function Dashboard() {
+
+export default function Dashboard({ onToggleNav }) {
   const [segments, setSegments] = useState(null)
   const [metrics, setMetrics] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
- 
+
   const fetchData = async () => {
     setLoading(true)
     setError(null)
     try {
-      const [segRes, metRes] = await Promise.all([
-        fetch('/analytics/segments'),
-        fetch('/metrics'),
-      ])
+      const [segRes, metRes] = await Promise.all([fetch('/analytics/segments'), fetch('/metrics')])
       if (!segRes.ok) throw new Error('Segment data unavailable')
       setSegments(await segRes.json())
       setMetrics(metRes.ok ? await metRes.json() : null)
@@ -98,65 +96,70 @@ export default function Dashboard() {
       setLoading(false)
     }
   }
- 
+
   useEffect(() => { fetchData() }, [])
- 
+
+  const Header = () => (
+    <header className="px-6 py-3.5 border-b border-ink/[0.12] bg-paper/70 backdrop-blur-sm flex items-center gap-3 sticky top-0 z-10">
+      <button onClick={onToggleNav} aria-label="Toggle sidebar (Ctrl+B)"
+        className="p-1.5 -ml-1 rounded-[5px] text-ink-muted hover:text-ink hover:bg-ink/[0.05]">
+        <PanelLeft className="w-4 h-4" />
+      </button>
+      <div className="flex-1 min-w-0">
+        <h2 className="text-[16px] font-semibold text-ink tracking-[-0.01em] leading-tight">Portfolio Ledger</h2>
+        <p className="font-mono text-[10px] text-ink-muted tracking-widest2 uppercase mt-0.5">50,000 accounts · live DuckDB aggregation</p>
+      </div>
+      <button onClick={fetchData} className="p-2 rounded-[5px] border border-ink/[0.12] hover:border-accent/40 text-ink-muted hover:text-ink" aria-label="Refresh">
+        <RefreshCw className="w-3.5 h-3.5" />
+      </button>
+    </header>
+  )
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <p className="font-mono text-[11px] text-ink-300 tracking-widest2 uppercase animate-pulse-soft">
-          Loading portfolio…
-        </p>
-      </div>
-    )
-  }
- 
-  if (error) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="text-center max-w-md px-6">
-          <AlertTriangle className="w-6 h-6 text-risk-high mx-auto mb-3" />
-          <p className="text-[13px] text-ink-200 mb-4">{error}</p>
-          <button onClick={fetchData}
-            className="px-4 py-2 border border-ink-600 hover:border-gold-dim text-[13px] text-ink-200 hover:text-bone">
-            Retry
-          </button>
+      <div className="h-full flex flex-col">
+        <Header />
+        <div className="flex-1 flex items-center justify-center">
+          <p className="font-mono text-[11px] text-ink-muted tracking-widest2 uppercase animate-pulse-soft">Loading portfolio…</p>
         </div>
       </div>
     )
   }
- 
+
+  if (error) {
+    return (
+      <div className="h-full flex flex-col">
+        <Header />
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center max-w-md px-6">
+            <AlertTriangle className="w-6 h-6 text-risk-high mx-auto mb-3" />
+            <p className="text-[13px] text-ink-text mb-4">{error}</p>
+            <button onClick={fetchData}
+              className="px-4 py-2 rounded-[6px] border border-ink/[0.16] hover:border-accent/50 text-[13px] text-ink-text hover:text-ink">
+              Retry
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   const totalCustomers = segments?.reduce((s, r) => s + r.customers, 0) || 0
   const weightedDelinq = totalCustomers
-    ? segments.reduce((s, r) => s + r.delinq_pct * r.customers, 0) / totalCustomers
-    : 0
+    ? segments.reduce((s, r) => s + r.delinq_pct * r.customers, 0) / totalCustomers : 0
   const highest = segments?.[0]
- 
-  // Risk concentration: share of delinquents per segment
   const totalDelinquents = segments?.reduce((s, r) => s + (r.delinq_pct / 100) * r.customers, 0) || 1
   const concentration = segments?.map(r => ({
     ...r,
     delinquents: Math.round((r.delinq_pct / 100) * r.customers),
     share: ((r.delinq_pct / 100) * r.customers) / totalDelinquents * 100,
   }))
- 
+
   return (
     <div className="h-full overflow-y-auto">
-      <header className="px-8 py-4 border-b border-ink-700 bg-ink-900/60 backdrop-blur-sm flex items-baseline justify-between sticky top-0 z-10">
-        <div>
-          <h2 className="font-display text-[17px] text-bone">Portfolio Ledger</h2>
-          <p className="font-mono text-[10px] text-ink-300 tracking-widest2 uppercase mt-0.5">
-            50,000 accounts · live DuckDB aggregation
-          </p>
-        </div>
-        <button onClick={fetchData} className="p-2 border border-ink-700 hover:border-ink-500 text-ink-300 hover:text-bone" aria-label="Refresh">
-          <RefreshCw className="w-3.5 h-3.5" />
-        </button>
-      </header>
- 
-      <div className="px-8 py-6 max-w-6xl mx-auto space-y-5">
- 
-        {/* ── Headline metrics ──────────────────────────── */}
+      <Header />
+      <div className="px-6 py-6 max-w-6xl mx-auto space-y-5">
+
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <Metric label="Accounts" value={totalCustomers} note="5 segments" />
           <Metric label="Portfolio Delinquency" value={weightedDelinq} decimals={2} suffix="%"
@@ -164,100 +167,87 @@ export default function Dashboard() {
           <Metric label="Highest Risk Segment" value={highest?.delinq_pct} decimals={2} suffix="%"
                   note={highest?.segment} tone="text-risk-high" />
           <Metric label="Queries Logged" value={metrics?.total_queries || 0}
-                  note={metrics?.avg_latency_ms ? `avg ${(metrics.avg_latency_ms / 1000).toFixed(1)}s` : 'audit trail'} tone="text-gold" />
+                  note={metrics?.avg_latency_ms ? `avg ${(metrics.avg_latency_ms / 1000).toFixed(1)}s` : 'audit trail'} tone="text-accent" />
         </div>
- 
-        {/* ── Charts ────────────────────────────────────── */}
+
         <div className="grid lg:grid-cols-2 gap-4">
-          <Panel title="Delinquency by Segment" right={<span className="font-mono text-[10px] text-ink-400">%</span>}>
+          <Panel title="Delinquency by Segment" right={<span className="font-mono text-[10px] text-ink-faint">%</span>}>
             <ResponsiveContainer width="100%" height={260}>
               <BarChart data={segments} margin={{ top: 4, right: 8, bottom: 0, left: -16 }}>
-                <CartesianGrid strokeDasharray="2 4" stroke="#222837" vertical={false} />
-                <XAxis dataKey="segment" tick={{ fill: '#8B93A7', fontSize: 10, fontFamily: 'IBM Plex Mono' }}
-                       axisLine={{ stroke: '#222837' }} tickLine={false} />
-                <YAxis tick={{ fill: '#8B93A7', fontSize: 10, fontFamily: 'IBM Plex Mono' }}
-                       axisLine={false} tickLine={false} />
-                <Tooltip content={<DarkTooltip />} cursor={{ fill: 'rgba(201,169,97,0.05)' }} />
-                <Bar dataKey="delinq_pct" name="Delinquency %" maxBarSize={42}>
+                <CartesianGrid strokeDasharray="2 4" stroke={GRID_STROKE} vertical={false} />
+                <XAxis dataKey="segment" tick={AXIS_TICK} axisLine={{ stroke: AXIS_STROKE }} tickLine={false} />
+                <YAxis tick={AXIS_TICK} axisLine={false} tickLine={false} />
+                <Tooltip content={<LedgerTooltip />} cursor={{ fill: 'rgba(33,69,110,0.05)' }} />
+                <Bar dataKey="delinq_pct" name="Delinquency %" maxBarSize={42} radius={[2, 2, 0, 0]}>
                   {segments?.map((row, i) => (
-                    <Cell key={i} fill={SEGMENT_TONES[row.segment] || '#6B9BD2'} fillOpacity={0.85} />
+                    <Cell key={i} fill={SEGMENT_TONES[row.segment] || '#21456E'} fillOpacity={0.9} />
                   ))}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
           </Panel>
- 
-          <Panel title="Utilization vs Delinquency" right={<span className="font-mono text-[10px] text-ink-400">bubble = accounts</span>}>
+
+          <Panel title="Utilization vs Delinquency" right={<span className="font-mono text-[10px] text-ink-faint">bubble = accounts</span>}>
             <ResponsiveContainer width="100%" height={260}>
               <ScatterChart margin={{ top: 4, right: 16, bottom: 0, left: -16 }}>
-                <CartesianGrid strokeDasharray="2 4" stroke="#222837" />
-                <XAxis dataKey="util_pct" name="Utilization %" unit="%"
-                       tick={{ fill: '#8B93A7', fontSize: 10, fontFamily: 'IBM Plex Mono' }}
-                       axisLine={{ stroke: '#222837' }} tickLine={false} />
-                <YAxis dataKey="delinq_pct" name="Delinquency %" unit="%"
-                       tick={{ fill: '#8B93A7', fontSize: 10, fontFamily: 'IBM Plex Mono' }}
-                       axisLine={false} tickLine={false} />
+                <CartesianGrid strokeDasharray="2 4" stroke={GRID_STROKE} />
+                <XAxis dataKey="util_pct" name="Utilization %" unit="%" tick={AXIS_TICK} axisLine={{ stroke: AXIS_STROKE }} tickLine={false} />
+                <YAxis dataKey="delinq_pct" name="Delinquency %" unit="%" tick={AXIS_TICK} axisLine={false} tickLine={false} />
                 <ZAxis dataKey="customers" range={[120, 900]} name="Accounts" />
-                <Tooltip content={<DarkTooltip />} cursor={{ strokeDasharray: '3 3', stroke: '#3D4556' }} />
+                <Tooltip content={<LedgerTooltip />} cursor={{ strokeDasharray: '3 3', stroke: 'rgba(27,23,18,0.2)' }} />
                 <Scatter data={segments}>
                   {segments?.map((row, i) => (
-                    <Cell key={i} fill={SEGMENT_TONES[row.segment] || '#6B9BD2'} fillOpacity={0.75} />
+                    <Cell key={i} fill={SEGMENT_TONES[row.segment] || '#21456E'} fillOpacity={0.82} />
                   ))}
                 </Scatter>
               </ScatterChart>
             </ResponsiveContainer>
           </Panel>
         </div>
- 
-        {/* ── Risk concentration strip ──────────────────── */}
-        <Panel title="Where the Delinquents Are" right={<span className="font-mono text-[10px] text-ink-400">share of all delinquent accounts</span>}>
-          <div className="flex h-8 overflow-hidden border border-ink-700">
+
+        <Panel title="Where the Delinquents Are" right={<span className="font-mono text-[10px] text-ink-faint">share of all delinquent accounts</span>}>
+          <div className="flex h-8 overflow-hidden rounded-[4px] border border-ink/[0.12]">
             {concentration?.map((row, i) => (
-              <div key={i}
-                style={{ width: `${row.share}%`, backgroundColor: SEGMENT_TONES[row.segment] }}
-                className="relative group transition-opacity hover:opacity-90"
-                title={`${row.segment}: ${row.delinquents.toLocaleString()} delinquents (${row.share.toFixed(1)}%)`}
-              />
+              <div key={i} style={{ width: `${row.share}%`, backgroundColor: SEGMENT_TONES[row.segment] }}
+                className="relative transition-opacity hover:opacity-90"
+                title={`${row.segment}: ${row.delinquents.toLocaleString()} delinquents (${row.share.toFixed(1)}%)`} />
             ))}
           </div>
           <div className="flex flex-wrap gap-x-5 gap-y-1.5 mt-3">
             {concentration?.map((row, i) => (
               <div key={i} className="flex items-center gap-1.5">
-                <span className="w-2 h-2" style={{ backgroundColor: SEGMENT_TONES[row.segment] }} />
-                <span className="font-mono text-[10px] text-ink-300">
-                  {row.segment} <span className="text-bone">{row.share.toFixed(1)}%</span>
+                <span className="w-2 h-2 rounded-[2px]" style={{ backgroundColor: SEGMENT_TONES[row.segment] }} />
+                <span className="font-mono text-[10px] text-ink-muted">
+                  {row.segment} <span className="text-ink tabular-nums">{row.share.toFixed(1)}%</span>
                 </span>
               </div>
             ))}
           </div>
         </Panel>
- 
-        {/* ── Segment ledger table ──────────────────────── */}
+
         <Panel title="Segment Ledger">
           <table className="w-full">
             <thead>
-              <tr className="border-b border-ink-700">
+              <tr className="border-b border-ink/[0.14]">
                 {['Segment', 'Accounts', 'Delinquency', 'Utilization', 'Avg Risk'].map((h, i) => (
-                  <th key={h} className={`font-mono text-[10px] text-ink-400 tracking-widest2 uppercase py-2
-                    ${i === 0 ? 'text-left' : 'text-right'}`}>
-                    {h}
-                  </th>
+                  <th key={h} className={`font-mono text-[10px] text-ink-faint tracking-widest2 uppercase py-2
+                    ${i === 0 ? 'text-left' : 'text-right'}`}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {segments?.map((row, i) => (
-                <tr key={i} className="border-b border-ink-800 hover:bg-ink-800/50 transition-colors">
-                  <td className="py-2.5 text-[13px] text-bone flex items-center gap-2">
-                    <span className="w-1.5 h-1.5" style={{ backgroundColor: SEGMENT_TONES[row.segment] }} />
+                <tr key={i} className="border-b border-ink/[0.08] hover:bg-ink/[0.03] transition-colors">
+                  <td className="py-2.5 text-[13px] text-ink flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-[2px]" style={{ backgroundColor: SEGMENT_TONES[row.segment] }} />
                     {row.segment}
                   </td>
-                  <td className="py-2.5 text-right font-mono text-[12px] text-ink-200">{row.customers?.toLocaleString()}</td>
-                  <td className={`py-2.5 text-right font-mono text-[12px] ${
+                  <td className="py-2.5 text-right font-mono text-[12px] text-ink-text tabular-nums">{row.customers?.toLocaleString()}</td>
+                  <td className={`py-2.5 text-right font-mono text-[12px] tabular-nums ${
                     row.delinq_pct > 10 ? 'text-risk-high' : row.delinq_pct > 5 ? 'text-risk-medium' : 'text-risk-low'
                   }`}>{row.delinq_pct}%</td>
-                  <td className="py-2.5 text-right font-mono text-[12px] text-ink-200">{row.util_pct}%</td>
-                  <td className="py-2.5 text-right font-mono text-[12px] text-ink-200">{row.avg_risk}</td>
+                  <td className="py-2.5 text-right font-mono text-[12px] text-ink-text tabular-nums">{row.util_pct}%</td>
+                  <td className="py-2.5 text-right font-mono text-[12px] text-ink-text tabular-nums">{row.avg_risk}</td>
                 </tr>
               ))}
             </tbody>
