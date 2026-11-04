@@ -26,8 +26,13 @@ analytics  = portfolio data, trends, segments, KPIs
 
 def orchestrator_node(state: AgentState) -> dict:
     query    = state['messages'][-1].content
-    response = llm.invoke([SystemMessage(content=PROMPT),
-                           HumanMessage(content=f'Query: {query}')])
+    # The query is untrusted; delimit it so an injected "ignore your
+    # instructions" can't hijack the classifier. Output is still validated
+    # against VALID_INTENTS below regardless of what the model returns.
+    response = llm.invoke([
+        SystemMessage(content=PROMPT),
+        HumanMessage(content=f'<query>\n{query}\n</query>'),
+    ])
     try:
         parsed = json.loads(response.content)
     except json.JSONDecodeError:
