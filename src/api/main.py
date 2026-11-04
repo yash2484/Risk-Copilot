@@ -1,15 +1,20 @@
 # src/api/main.py
 
+import logging
+import os
 import time, uuid, csv
 from pathlib import Path
-from fastapi import FastAPI, HTTPException
+from typing import Literal
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from langchain_core.messages import HumanMessage
 from src.graph import GRAPH
 from dotenv import load_dotenv
 from src.utils.db import run_query
 load_dotenv()
+
+logger = logging.getLogger('risk_copilot.api')
 
 app = FastAPI(
     title='Risk & Insights Copilot API',
@@ -17,19 +22,41 @@ app = FastAPI(
     version='1.0.0'
 )
 
-# CORS — allow the Streamlit frontend (or any client) to call the API
+# CORS — restrict to the known frontend origins. Override with a comma-separated
+# CORS_ORIGINS env var in other environments. Wildcard '*' is intentionally not
+# the default: this API has no per-user auth, so an open CORS policy would let
+# any site drive it and burn LLM tokens.
+_cors_origins = [
+    o.strip()
+    for o in os.getenv('CORS_ORIGINS', 'http://localhost:3000,http://localhost:5173').split(',')
+    if o.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=['*'],
-    allow_methods=['*'],
+    allow_origins=_cors_origins,
+    allow_methods=['GET', 'POST'],
     allow_headers=['*'],
 )
+
+# Optional shared-secret gate. When API_KEY is set, every mutating/LLM-invoking
+# request must send it as X-API-Key. Unset (dev/demo default) → no gate, so the
+# local Vite proxy keeps working. This is a coarse anti-abuse control, NOT a
+# per-user identity system.
+_API_KEY = os.getenv('API_KEY', '').strip()
+
+
+def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
+    if _API_KEY and x_api_key != _API_KEY:
+        raise HTTPException(status_code=401, detail='Invalid or missing API key.')
 
 # ── REQUEST / RESPONSE MODELS ─────────────────────────────────
 
 class ChatRequest(BaseModel):
-    message:   str
-    user_role: str = 'analyst'  # analyst | manager | read_only
+    message:   str = Field(min_length=1, max_length=4000)
+    # NOTE: user_role is a client-supplied UI hint, NOT a trust boundary. It
+    # gates cosmetic PII/table hiding only. Do not rely on it for real access
+    # control — that requires authenticated identity (see require_api_key).
+    user_role: Literal['analyst', 'manager', 'read_only'] = 'analyst'
 
 class ChatResponse(BaseModel):
     workflow_id: str
@@ -41,7 +68,7 @@ class ChatResponse(BaseModel):
 
 # ── ENDPOINTS ─────────────────────────────────────────────────
 
-@app.post('/chat', response_model=ChatResponse)
+@app.post('/chat', response_model=ChatResponse, dependencies=[Depends(require_api_key)])
 async def chat(req: ChatRequest):
     wf_id = str(uuid.uuid4())
     start = time.time()
@@ -64,8 +91,14 @@ async def chat(req: ChatRequest):
 
     try:
         result = GRAPH.invoke(initial)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        # Log the detail server-side; return an opaque message so exception
+        # text (SQL, file paths, stack internals) never reaches the client.
+        logger.exception('Graph invocation failed for workflow %s', wf_id)
+        raise HTTPException(
+            status_code=500,
+            detail='Internal error processing the request.',
+        )
 
     return ChatResponse(
         workflow_id = wf_id,
