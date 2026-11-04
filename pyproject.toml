@@ -1,2 +1,43 @@
+[project]
+name = "risk-copilot"
+version = "1.0.0"
+description = "Multi-agent LangGraph copilot for credit-risk analytics, fraud detection, and policy-grounded decision support"
+requires-python = ">=3.11"
+dependencies = [
+    # API + orchestration
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.7",
+    "python-dotenv>=1.0",
+    "langgraph>=0.2",
+    "langchain-core>=0.3",
+    "langchain-openai>=0.2",
+    # Data / query engine
+    "duckdb>=1.0",
+    "pandas>=2.2",
+    "numpy>=1.26",
+    # Risk model (rule + ML + explainability)
+    "scikit-learn>=1.4",
+    "shap>=0.45",
+    "joblib>=1.4",
+    # Policy RAG
+    "chromadb>=0.5",
+    "sentence-transformers>=3.0",
+]
+
+[project.optional-dependencies]
+# Streamlit analytics page (legacy/optional; the React dashboard is the primary UI)
+dashboard = [
+    "streamlit>=1.36",
+    "plotly>=5.22",
+]
+dev = [
+    "pytest>=8.2",
+    "ruff>=0.5",
+]
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100

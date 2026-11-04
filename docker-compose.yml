@@ -2,17 +2,23 @@
 # This is for the future production Postgres upgrade (Phase 8+).
 # Current build uses DuckDB + ChromaDB + CSV logging — no server needed.
 
-docker psservices:
+services:
   postgres:
     image: pgvector/pgvector:pg16
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: risk_copilot
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      # Set POSTGRES_PASSWORD in a local .env; the default is dev-only.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-risk_copilot}
     ports:
       - '5432:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-risk_copilot}']
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
 volumes:
   postgres_data:
