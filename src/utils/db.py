@@ -57,17 +57,22 @@ def get_connection():
     return conn
 
 
-def run_query(sql: str) -> list[dict]:
+def run_query(sql: str, params: list | tuple | None = None) -> list[dict]:
     """
     Execute a SQL query and return results as a list of dicts.
     Each dict is one row: {"column_name": value, ...}
+
+    Always pass user-derived values via ``params`` (bound as ``?``
+    placeholders) — never format them into ``sql`` with an f-string.
+    DuckDB can read arbitrary files (read_csv/read_parquet/glob), so an
+    interpolated identifier is a real file-read / data-exfiltration vector.
 
     .fetchdf()  → returns a pandas DataFrame
     .to_dict("records")  → converts to list of row dictionaries
     This format is what LangChain message formatting expects.
     """
     conn = get_connection()
-    return conn.execute(sql).fetchdf().to_dict("records")
+    return conn.execute(sql, params or []).fetchdf().to_dict("records")
 
 
 if __name__ == "__main__":

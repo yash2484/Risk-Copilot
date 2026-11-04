@@ -1,11 +1,19 @@
 # src/agents/risk_agent.py
 
+import re
+
 import joblib
 import numpy as np
 import pandas as pd
 import shap
 from pathlib import Path
 from src.utils.db import run_query
+
+# Customer IDs are opaque tokens of the form CUST_000042. Validating the shape
+# at the trust boundary is defense-in-depth on top of parameterized queries:
+# the id originates from an LLM-parsed free-text message, so it must never be
+# treated as trusted SQL text.
+CUSTOMER_ID_RE = re.compile(r"^CUST_\d{6}$")
 
 # Load model artifacts once at import time (~80MB each)
 MODEL     = joblib.load('models/risk_rf_model.pkl')
@@ -59,19 +67,28 @@ def compute_ml_score(portfolio: dict, txn: dict) -> tuple[float, str]:
 
 
 def score_customer(customer_id: str) -> dict:
-    p = run_query(f"SELECT * FROM portfolio WHERE customer_id='{customer_id}' LIMIT 1")
+    # Reject anything that isn't a well-formed customer id before it reaches
+    # the query layer. Values are still bound as parameters below regardless.
+    if not isinstance(customer_id, str) or not CUSTOMER_ID_RE.match(customer_id):
+        return {'error': 'Invalid customer ID format (expected CUST_NNNNNN).'}
+
+    p = run_query(
+        "SELECT * FROM portfolio WHERE customer_id = ? LIMIT 1", [customer_id]
+    )
     if not p: return {'error': f'Customer {customer_id} not found'}
     p = p[0]
 
     t = run_query(
-        f"SELECT avg_spend_30d, max_txn_amt_30d, is_cross_border, charge_off_flag"
-        f" FROM transactions WHERE customer_id='{customer_id}' ORDER BY date DESC LIMIT 1"
+        "SELECT avg_spend_30d, max_txn_amt_30d, is_cross_border, charge_off_flag"
+        " FROM transactions WHERE customer_id = ? ORDER BY date DESC LIMIT 1",
+        [customer_id],
     )
     t = t[0] if t else {}
 
     l = run_query(
-        f"SELECT failed_attempts_24h, new_device_flag, ip_country"
-        f" FROM login_events WHERE user_id='{customer_id}' ORDER BY timestamp DESC LIMIT 1"
+        "SELECT failed_attempts_24h, new_device_flag, ip_country"
+        " FROM login_events WHERE user_id = ? ORDER BY timestamp DESC LIMIT 1",
+        [customer_id],
     )
     l = l[0] if l else {}
 
